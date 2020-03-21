@@ -3,7 +3,7 @@ using System;
 using UnityEngine;
 
 namespace Oxide.Plugins {
-    [Info("Extra Seating", "Pho3niX90", "1.0.3")]
+    [Info("Extra Seating", "Pho3niX90", "1.0.4")]
     [Description("Allows extra seats on minicopters and horses")]
     class ExtraSeating : RustPlugin {
         #region Config
@@ -11,36 +11,52 @@ namespace Oxide.Plugins {
         static ExtraSeating _instance;
         bool debug = false;
         int seats = 0;
+
+        bool onMiniCanCreateRotorSeat;
+        bool onMiniCanCreateSideSeats;
+        bool onHorseCanCreateBackSeat;
+
         string CHAIR_PREFAB = "assets/prefabs/vehicle/seats/passengerchair.prefab";
         string INVIS_CHAIR_PREFAB = "assets/bundled/prefabs/static/chair.invisible.static.prefab";
 
         protected override void LoadDefaultConfig() { Config.WriteObject(GetDefaultConfig(), true); }
-        public PluginConfig GetDefaultConfig() { return new PluginConfig { EnableMiniSideSeats = true, EnableMiniBackSeat = true, EnableExtraHorseSeat = true }; }
+        public PluginConfig GetDefaultConfig() { return new PluginConfig { EnableMiniSideSeats = false, EnableMiniBackSeat = false, EnableExtraHorseSeat = false }; }
         public class PluginConfig { public bool EnableMiniSideSeats; public bool EnableMiniBackSeat; public bool EnableExtraHorseSeat; }
         #endregion
         private void Init() {
             config = Config.ReadObject<PluginConfig>();
         }
+
         void LogDebug(string str) {
             if (debug) Puts(str);
         }
+
         void OnEntitySpawned(BaseNetworkable entity) {
             _instance = this;
             if (entity == null || !(entity is MiniCopter || entity is RidableHorse)) return;
             BaseVehicle vehicle = entity as BaseVehicle;
+            BaseEntity be = entity as BaseEntity;
+
             seats = vehicle.mountPoints.Length; // default
 
             if (entity is MiniCopter && entity.ShortPrefabName.Equals("minicopter.entity")) {
+                var rotor = Interface.CallHook("OnMiniCanCreateRotorSeat", entity);
+                var sides = Interface.CallHook("OnMiniCanCreateSideSeats", entity);
+                onMiniCanCreateRotorSeat = rotor != null ? (bool)rotor : false;
+                onMiniCanCreateSideSeats = sides != null ? (bool)sides : false;
 
-                if (_instance.config.EnableMiniSideSeats) seats += 2;
-                if (_instance.config.EnableMiniBackSeat) seats += 1;
+                if (_instance.config.EnableMiniSideSeats || onMiniCanCreateSideSeats) seats += 2;
+                if (_instance.config.EnableMiniBackSeat || onMiniCanCreateRotorSeat) seats += 1;
 
                 if (vehicle.mountPoints.Length < seats)
                     vehicle?.gameObject.AddComponent<Seating>();
             }
 
             if (entity is RidableHorse) {
-                if (_instance.config.EnableExtraHorseSeat) seats += 1;
+                var horse = Interface.CallHook("OnHorseCanCreateBackSeat", entity);
+                onHorseCanCreateBackSeat = horse != null ? (bool)horse : false;
+
+                if (_instance.config.EnableExtraHorseSeat || onHorseCanCreateBackSeat) seats += 1;
 
                 if (vehicle.mountPoints.Length < seats)
                     NextTick(() => {
@@ -85,24 +101,21 @@ namespace Oxide.Plugins {
                 bool isHorse = entity is RidableHorse;
                 Vector3 emptyVector = new Vector3(0, 0, 0);
 
-                if (isMini) {
-                    _instance.LogDebug("Minicopter detected");
-                }
-                if (isHorse) {
-                    _instance.LogDebug("Horse detected");
-                }
+                if (isMini) _instance.LogDebug("Minicopter detected");
+                if (isHorse) _instance.LogDebug("Horse detected");
 
                 BaseVehicle.MountPointInfo pilot = entity.mountPoints[0];
-
 
                 if (isHorse) {
                     _instance.LogDebug("Adding passenger seat");
                     //Vector3 horseVector = new Vector3(0f, -0.32f, -0.5f);
-                    Vector3 horseVector2 = new Vector3(0f, 1.0f, -0.5f);
-                    //BaseVehicle.MountPointInfo horseBack = _instance.CreateMount(horseVector, pilot);
-                    //entity.mountPoints[0] = pilot;
-                    //entity.mountPoints[1] = horseBack;
-                    _instance.AddSeat(entity, horseVector2, new Quaternion());
+                    if (_instance.config.EnableExtraHorseSeat || _instance.onHorseCanCreateBackSeat) {
+                        Vector3 horseVector2 = new Vector3(0f, 1.0f, -0.5f);
+                        //BaseVehicle.MountPointInfo horseBack = _instance.CreateMount(horseVector, pilot);
+                        //entity.mountPoints[0] = pilot;
+                        //entity.mountPoints[1] = horseBack;
+                        _instance.AddSeat(entity, horseVector2, new Quaternion());
+                    }
                 }
 
                 if (isMini) {
@@ -116,7 +129,7 @@ namespace Oxide.Plugins {
                     Vector3 playerOffsetVector = new Vector3(0f, 0f, -0.25f);
                     Quaternion backQuaternion = Quaternion.Euler(0f, 180f, 0f);
 
-                    if (_instance.config.EnableMiniSideSeats) {
+                    if (_instance.config.EnableMiniSideSeats || _instance.onMiniCanCreateSideSeats) {
                         _instance.LogDebug("Adding side seats");
                         BaseVehicle.MountPointInfo pLeftSide = _instance.CreateMount(leftVector, pFront);
                         BaseVehicle.MountPointInfo pRightSide = _instance.CreateMount(rightVector, pFront);
@@ -126,7 +139,7 @@ namespace Oxide.Plugins {
                         _instance.AddSeat(entity, rightVector + playerOffsetVector, new Quaternion());
                     }
 
-                    if (_instance.config.EnableMiniBackSeat) {
+                    if (_instance.config.EnableMiniBackSeat || _instance.onMiniCanCreateRotorSeat) {
                         _instance.LogDebug("Adding back/rotor seat");
                         BaseVehicle.MountPointInfo pBackReverse = _instance.CreateMount(backVector2, pFront, new Vector3(0f, 180f, 0f));
                         entity.mountPoints[_instance.seats - 1] = pBackReverse;
