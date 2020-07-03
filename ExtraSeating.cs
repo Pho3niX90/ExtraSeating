@@ -1,9 +1,9 @@
-using Oxide.Core;
 using System;
+using System.Linq;
 using UnityEngine;
 
 namespace Oxide.Plugins {
-    [Info("Extra Seating", "Pho3niX90", "1.0.4")]
+    [Info("Extra Seating", "Pho3niX90", "1.0.6")]
     [Description("Allows extra seats on minicopters and horses")]
     class ExtraSeating : RustPlugin {
         #region Config
@@ -12,15 +12,8 @@ namespace Oxide.Plugins {
         bool debug = false;
         int seats = 0;
 
-        bool onMiniCanCreateRotorSeat;
-        bool onMiniCanCreateSideSeats;
-        bool onHorseCanCreateBackSeat;
-
-        string CHAIR_PREFAB = "assets/prefabs/vehicle/seats/passengerchair.prefab";
-        string INVIS_CHAIR_PREFAB = "assets/bundled/prefabs/static/chair.invisible.static.prefab";
-
         protected override void LoadDefaultConfig() { Config.WriteObject(GetDefaultConfig(), true); }
-        public PluginConfig GetDefaultConfig() { return new PluginConfig { EnableMiniSideSeats = false, EnableMiniBackSeat = false, EnableExtraHorseSeat = false }; }
+        public PluginConfig GetDefaultConfig() { return new PluginConfig { EnableMiniSideSeats = true, EnableMiniBackSeat = true, EnableExtraHorseSeat = true }; }
         public class PluginConfig { public bool EnableMiniSideSeats; public bool EnableMiniBackSeat; public bool EnableExtraHorseSeat; }
         #endregion
         private void Init() {
@@ -35,39 +28,25 @@ namespace Oxide.Plugins {
             _instance = this;
             if (entity == null || !(entity is MiniCopter || entity is RidableHorse)) return;
             BaseVehicle vehicle = entity as BaseVehicle;
-            BaseEntity be = entity as BaseEntity;
-
-            seats = vehicle.mountPoints.Length; // default
+            seats = vehicle.mountPoints.Count; // default
 
             if (entity is MiniCopter && entity.ShortPrefabName.Equals("minicopter.entity")) {
-                var rotor = Interface.CallHook("OnMiniCanCreateRotorSeat", entity);
-                var sides = Interface.CallHook("OnMiniCanCreateSideSeats", entity);
-                onMiniCanCreateRotorSeat = rotor != null ? (bool)rotor : false;
-                onMiniCanCreateSideSeats = sides != null ? (bool)sides : false;
 
-                if (_instance.config.EnableMiniSideSeats || onMiniCanCreateSideSeats) seats += 2;
-                if (_instance.config.EnableMiniBackSeat || onMiniCanCreateRotorSeat) seats += 1;
+                if (_instance.config.EnableMiniSideSeats) seats += 2;
+                if (_instance.config.EnableMiniBackSeat) seats += 1;
 
-                if (vehicle.mountPoints.Length < seats)
+                if (vehicle.mountPoints.Count < seats)
                     vehicle?.gameObject.AddComponent<Seating>();
             }
-
             if (entity is RidableHorse) {
-                var horse = Interface.CallHook("OnHorseCanCreateBackSeat", entity);
-                onHorseCanCreateBackSeat = horse != null ? (bool)horse : false;
-
-                if (_instance.config.EnableExtraHorseSeat || onHorseCanCreateBackSeat) seats += 1;
-
-                if (vehicle.mountPoints.Length < seats)
-                    NextTick(() => {
-                        vehicle?.gameObject.AddComponent<Seating>();
-                    });
+                if (_instance.config.EnableExtraHorseSeat) seats += 1;
+                if (vehicle.mountPoints.Count < seats)
+                    vehicle?.gameObject.AddComponent<Seating>();
             }
         }
 
         void AddSeat(BaseVehicle ent, Vector3 locPos, Quaternion q) {
-            string PREFAB = ent is MiniCopter ? CHAIR_PREFAB : INVIS_CHAIR_PREFAB;
-            BaseEntity seat = GameManager.server.CreateEntity(PREFAB, ent.transform.position, q) as BaseEntity;
+            BaseEntity seat = GameManager.server.CreateEntity("assets/prefabs/vehicle/seats/passengerchair.prefab", ent.transform.position, q) as BaseEntity;
             if (seat == null) return;
 
             seat.SetParent(ent);
@@ -76,8 +55,17 @@ namespace Oxide.Plugins {
             seat.SendNetworkUpdateImmediate(true);
         }
 
-        BaseVehicle.MountPointInfo CreateMount(Vector3 vec, BaseVehicle.MountPointInfo exampleSeat) {
-            return CreateMount(vec, exampleSeat, new Vector3());
+        [ChatCommand("checkmount")]
+        private void cmdStats(BasePlayer player, string command, string[] args) {
+            RidableHorse entity = player.GetMounted().GetParentEntity() as RidableHorse;
+            if (entity == null) {
+                _instance.Puts($"entity is null"); return;
+            }
+            foreach (var s in entity.mountPoints) {
+                _instance.Puts($"pos: {s.pos}\n {s.bone}\n {s.mountable}\n IsMounted:{s.mountable.IsMounted()}\n {s.prefab}");
+            }
+            _instance.Puts($"IsMounted[0]:{entity.mountPoints[0].mountable.IsMounted()}\n IsMounted[1]:{entity.mountPoints[1].mountable.IsMounted()}");
+            // _instance.Puts($"HasMountPoints: {entity.HasMountPoints()}");
         }
 
         BaseVehicle.MountPointInfo CreateMount(Vector3 vec, BaseVehicle.MountPointInfo exampleSeat, Vector3 rotation) {
@@ -91,35 +79,46 @@ namespace Oxide.Plugins {
         }
 
         #region Classes
-        class Seating : FacepunchBehaviour {
+        class HorsePassenger : BaseRidableAnimal {
+            override public void PlayerServerInput(InputState inputState, BasePlayer player) {
+                if (player.userID == GetDriver().userID) {
+                    _instance.Puts("Player is driver");
+                    base.PlayerServerInput(inputState, player);
+                    return;
+                }
+                _instance.Puts("Player is NOT driver");
+            }
+        }
+
+        class Seating : MonoBehaviour {
             public BaseVehicle entity;
             void Awake() {
                 entity = GetComponent<BaseVehicle>();
-                if (entity == null) { Destroy(this); return; }
-
                 bool isMini = entity is MiniCopter;
                 bool isHorse = entity is RidableHorse;
                 Vector3 emptyVector = new Vector3(0, 0, 0);
-
-                if (isMini) _instance.LogDebug("Minicopter detected");
-                if (isHorse) _instance.LogDebug("Horse detected");
-
-                BaseVehicle.MountPointInfo pilot = entity.mountPoints[0];
-
+                if (isMini) {
+                    _instance.LogDebug("Minicopter detected");
+                }
                 if (isHorse) {
-                    _instance.LogDebug("Adding passenger seat");
-                    //Vector3 horseVector = new Vector3(0f, -0.32f, -0.5f);
-                    if (_instance.config.EnableExtraHorseSeat || _instance.onHorseCanCreateBackSeat) {
-                        Vector3 horseVector2 = new Vector3(0f, 1.0f, -0.5f);
-                        //BaseVehicle.MountPointInfo horseBack = _instance.CreateMount(horseVector, pilot);
-                        //entity.mountPoints[0] = pilot;
-                        //entity.mountPoints[1] = horseBack;
-                        _instance.AddSeat(entity, horseVector2, new Quaternion());
-                    }
+                    _instance.LogDebug("Horse detected");
                 }
 
-                if (isMini) {
-                    Array.Resize(ref entity.mountPoints, _instance.seats);
+                if (entity == null) { Destroy(this); return; }
+
+                BaseVehicle.MountPointInfo pilot = entity.mountPoints[0];
+                entity.mountPoints.Clear();
+
+                if (entity is RidableHorse) {
+                    _instance.LogDebug("Adding passenger seat");
+                    Vector3 horseVector = new Vector3(0f, -0.32f, -0.5f);
+                    BaseVehicle.MountPointInfo horseBack = _instance.CreateMount(horseVector, pilot, emptyVector);
+                    entity.mountPoints.Add(pilot);
+                    entity.mountPoints.Add(horseBack);
+                    entity.SendNetworkUpdateImmediate();
+                }
+
+                if (entity is MiniCopter) {
                     BaseVehicle.MountPointInfo pFront = entity.mountPoints[1];
                     Vector3 leftVector = new Vector3(0.6f, 0.2f, -0.2f);
                     Vector3 rightVector = new Vector3(-0.6f, 0.2f, -0.2f);
@@ -129,17 +128,17 @@ namespace Oxide.Plugins {
                     Vector3 playerOffsetVector = new Vector3(0f, 0f, -0.25f);
                     Quaternion backQuaternion = Quaternion.Euler(0f, 180f, 0f);
 
-                    if (_instance.config.EnableMiniSideSeats || _instance.onMiniCanCreateSideSeats) {
+                    if (_instance.config.EnableMiniSideSeats) {
                         _instance.LogDebug("Adding side seats");
-                        BaseVehicle.MountPointInfo pLeftSide = _instance.CreateMount(leftVector, pFront);
-                        BaseVehicle.MountPointInfo pRightSide = _instance.CreateMount(rightVector, pFront);
-                        entity.mountPoints[2] = pLeftSide;
-                        entity.mountPoints[3] = pRightSide;
+                        BaseVehicle.MountPointInfo pLeftSide = _instance.CreateMount(leftVector, pFront, emptyVector);
+                        BaseVehicle.MountPointInfo pRightSide = _instance.CreateMount(rightVector, pFront, emptyVector);
+                        entity.mountPoints.Add(pLeftSide);
+                        entity.mountPoints.Add(pRightSide);
                         _instance.AddSeat(entity, leftVector + playerOffsetVector, new Quaternion());
                         _instance.AddSeat(entity, rightVector + playerOffsetVector, new Quaternion());
                     }
 
-                    if (_instance.config.EnableMiniBackSeat || _instance.onMiniCanCreateRotorSeat) {
+                    if (_instance.config.EnableMiniBackSeat) {
                         _instance.LogDebug("Adding back/rotor seat");
                         BaseVehicle.MountPointInfo pBackReverse = _instance.CreateMount(backVector2, pFront, new Vector3(0f, 180f, 0f));
                         entity.mountPoints[_instance.seats - 1] = pBackReverse;
@@ -148,7 +147,6 @@ namespace Oxide.Plugins {
                 }
 
             }
-
         }
         #endregion
     }
