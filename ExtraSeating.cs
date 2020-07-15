@@ -3,7 +3,7 @@ using System.Linq;
 using UnityEngine;
 
 namespace Oxide.Plugins {
-    [Info("Extra Seating", "Pho3niX90", "1.0.6")]
+    [Info("Extra Seating", "Pho3niX90", "1.0.8")]
     [Description("Allows extra seats on minicopters and horses")]
     class ExtraSeating : RustPlugin {
         #region Config
@@ -107,13 +107,13 @@ namespace Oxide.Plugins {
                 if (entity == null) { Destroy(this); return; }
 
                 BaseVehicle.MountPointInfo pilot = entity.mountPoints[0];
-                entity.mountPoints.Clear();
+                //entity.mountPoints.Clear();
 
                 if (entity is RidableHorse) {
                     _instance.LogDebug("Adding passenger seat");
                     Vector3 horseVector = new Vector3(0f, -0.32f, -0.5f);
                     BaseVehicle.MountPointInfo horseBack = _instance.CreateMount(horseVector, pilot, emptyVector);
-                    entity.mountPoints.Add(pilot);
+                    //entity.mountPoints.Add(pilot);
                     entity.mountPoints.Add(horseBack);
                     entity.SendNetworkUpdateImmediate();
                 }
@@ -141,7 +141,7 @@ namespace Oxide.Plugins {
                     if (_instance.config.EnableMiniBackSeat) {
                         _instance.LogDebug("Adding back/rotor seat");
                         BaseVehicle.MountPointInfo pBackReverse = _instance.CreateMount(backVector2, pFront, new Vector3(0f, 180f, 0f));
-                        entity.mountPoints[_instance.seats - 1] = pBackReverse;
+                        entity.mountPoints.Add(pBackReverse);
                         _instance.AddSeat(entity, backVector, backQuaternion);
                     }
                 }
