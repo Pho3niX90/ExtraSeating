@@ -3,7 +3,7 @@ using System.Linq;
 using UnityEngine;
 
 namespace Oxide.Plugins {
-    [Info("Extra Seating", "Pho3niX90", "1.0.8")]
+    [Info("Extra Seating", "Pho3niX90", "1.0.9")]
     [Description("Allows extra seats on minicopters and horses")]
     class ExtraSeating : RustPlugin {
         #region Config
@@ -53,19 +53,6 @@ namespace Oxide.Plugins {
             seat.Spawn();
             seat.transform.localPosition = locPos;
             seat.SendNetworkUpdateImmediate(true);
-        }
-
-        [ChatCommand("checkmount")]
-        private void cmdStats(BasePlayer player, string command, string[] args) {
-            RidableHorse entity = player.GetMounted().GetParentEntity() as RidableHorse;
-            if (entity == null) {
-                _instance.Puts($"entity is null"); return;
-            }
-            foreach (var s in entity.mountPoints) {
-                _instance.Puts($"pos: {s.pos}\n {s.bone}\n {s.mountable}\n IsMounted:{s.mountable.IsMounted()}\n {s.prefab}");
-            }
-            _instance.Puts($"IsMounted[0]:{entity.mountPoints[0].mountable.IsMounted()}\n IsMounted[1]:{entity.mountPoints[1].mountable.IsMounted()}");
-            // _instance.Puts($"HasMountPoints: {entity.HasMountPoints()}");
         }
 
         BaseVehicle.MountPointInfo CreateMount(Vector3 vec, BaseVehicle.MountPointInfo exampleSeat, Vector3 rotation) {
