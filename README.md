@@ -14,6 +14,8 @@ Adds extra seats to the minicopter and horse.
 
 Note: If you want a plugin to handle all seat creation, then please make sure that the config has all seats set to the default false.
 
+
+returning true would create the seat, false will not
 ```csharp
 		bool OnMiniCanCreateRotorSeat(BaseVehicle entity) {
 			return false;
